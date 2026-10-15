@@ -42,3 +42,17 @@ terraform.rc
 # Optional: ignore plan files saved before destroying Terraform configuration
 # Uncomment the line below if you want to ignore planout files.
 # planout
+
+# ---------- Data (too large for GitHub; see data/README.md) ----------
+data/*
+!data/README.md
+
+# ---------- Local tools and OS files ----------
+.claude/
+.DS_Store
+.idea/
+.vscode/
+.ipynb_checkpoints/
+
+# ---------- Not ours to publish ----------
+GlobalPartners_Business_Analysis_Requirements.docx
