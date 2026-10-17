@@ -1,4 +1,4 @@
-.PHONY: init plan apply
+.PHONY: init plan apply destroy
 TF_DIR := infra/lakehouse
 
 ifndef ENV
@@ -16,3 +16,7 @@ plan: init
 apply:
 	@echo "Applying Terraform changes..."
 	terraform -chdir=$(TF_DIR) apply tfplan
+
+destroy: init
+	@echo "Destroying Terraform changes..."
+	terraform -chdir=$(TF_DIR) destroy -var-file=env/$(ENV).tfvars -auto-approve
