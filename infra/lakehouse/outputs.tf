@@ -5,3 +5,7 @@ output "account_id" {
 output "name_prefix" {
   value = local.name_prefix
 }
+
+output "bucket_name" {
+  value = aws_s3_bucket.lakehouse.bucket
+}

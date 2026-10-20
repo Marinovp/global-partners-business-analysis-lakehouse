@@ -20,3 +20,6 @@ apply:
 destroy: init
 	@echo "Destroying Terraform changes..."
 	terraform -chdir=$(TF_DIR) destroy -var-file=env/$(ENV).tfvars -auto-approve
+
+seed: init
+	aws s3 sync data/ s3://$$(terraform -chdir=$(TF_DIR) output -raw bucket_name)/seed/
