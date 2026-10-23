@@ -9,3 +9,7 @@ output "name_prefix" {
 output "bucket_name" {
   value = aws_s3_bucket.lakehouse.bucket
 }
+
+output "seed_job_name" {
+  value = aws_glue_job.seed.name
+}

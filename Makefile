@@ -1,4 +1,4 @@
-.PHONY: init plan apply destroy
+.PHONY: init plan apply destroy seed seed-rds
 TF_DIR := infra/lakehouse
 
 ifndef ENV
@@ -23,3 +23,7 @@ destroy: init
 
 seed: init
 	aws s3 sync data/ s3://$$(terraform -chdir=$(TF_DIR) output -raw bucket_name)/seed/
+
+# Start the Glue job that loads seed/*.csv into RDS (prints the job run ID).
+seed-rds: init
+	aws glue start-job-run --job-name $$(terraform -chdir=$(TF_DIR) output -raw seed_job_name) --query JobRunId --output text
