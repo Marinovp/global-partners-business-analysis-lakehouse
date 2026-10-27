@@ -1,4 +1,4 @@
-.PHONY: init plan apply destroy seed seed-rds
+.PHONY: init plan apply destroy seed seed-rds extract
 TF_DIR := infra/lakehouse
 
 ifndef ENV
@@ -27,3 +27,7 @@ seed: init
 # Start the Glue job that loads seed/*.csv into RDS (prints the job run ID).
 seed-rds: init
 	aws glue start-job-run --job-name $$(terraform -chdir=$(TF_DIR) output -raw seed_job_name) --query JobRunId --output text
+
+# Start job 0 (extract): SQL Server → S3 raw/ (prints the job run ID).
+extract: init
+	aws glue start-job-run --job-name $$(terraform -chdir=$(TF_DIR) output -raw extract_job_name) --query JobRunId --output text

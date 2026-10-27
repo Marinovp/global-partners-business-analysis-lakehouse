@@ -1,6 +1,7 @@
 locals {
-  source_db_name  = "globalpartners"
-  seed_script_src = "${path.module}/../../etl/jobs/seed_rds.py"
+  source_db_name     = "globalpartners"
+  seed_script_src    = "${path.module}/../../etl/jobs/seed_rds.py"
+  extract_script_src = "${path.module}/../../etl/jobs/extract.py"
 }
 
 # How Glue jobs get into the VPC: Glue places the job's network interfaces in this
@@ -66,5 +67,46 @@ resource "aws_glue_job" "seed" {
 
   tags = {
     Name = "${local.name_prefix}-seed-rds"
+  }
+}
+
+resource "aws_s3_object" "extract_script" {
+  bucket      = aws_s3_bucket.lakehouse.id
+  key         = "artifacts/jobs/extract.py"
+  source      = local.extract_script_src
+  source_hash = filemd5(local.extract_script_src)
+}
+
+# Job 0: copies the source tables from SQL Server to S3 raw/ as Parquet.
+resource "aws_glue_job" "extract" {
+  name              = "${local.name_prefix}-extract"
+  role_arn          = aws_iam_role.glue.arn
+  glue_version      = "4.0"
+  worker_type       = "G.1X"
+  number_of_workers = 2
+  timeout           = 30
+  max_retries       = 0
+  connections       = [aws_glue_connection.sqlserver.name]
+
+  command {
+    name            = "glueetl"
+    script_location = "s3://${aws_s3_bucket.lakehouse.bucket}/${aws_s3_object.extract_script.key}"
+    python_version  = "3"
+  }
+
+  default_arguments = {
+    "--job-language"                     = "python"
+    "--TempDir"                          = "s3://${aws_s3_bucket.lakehouse.bucket}/artifacts/tmp/"
+    "--enable-continuous-cloudwatch-log" = "true"
+    "--bucket"                           = aws_s3_bucket.lakehouse.bucket
+    "--db_host"                          = aws_db_instance.source.address
+    "--db_port"                          = tostring(aws_db_instance.source.port)
+    "--db_name"                          = local.source_db_name
+    "--secret_arn"                       = aws_db_instance.source.master_user_secret[0].secret_arn
+    "--aws_region"                       = var.aws_region
+  }
+
+  tags = {
+    Name = "${local.name_prefix}-extract"
   }
 }

@@ -13,3 +13,7 @@ output "bucket_name" {
 output "seed_job_name" {
   value = aws_glue_job.seed.name
 }
+
+output "extract_job_name" {
+  value = aws_glue_job.extract.name
+}
