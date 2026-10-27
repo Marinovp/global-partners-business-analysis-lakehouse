@@ -46,12 +46,17 @@ def latest_run_path(table: str) -> str:
 
 raw = spark.read.parquet(latest_run_path("order_items"))
 raw = raw.toDF(*[c.lower() for c in raw.columns])  # silver uses lowercase column names
-updates = raw.dropDuplicates(["lineitem_id"])  # MERGE needs one source row per key
+updates = raw.filter("lineitem_id IS NOT NULL").dropDuplicates(
+    ["lineitem_id"]
+)  # MERGE needs one source row per key
 updates.createOrReplaceTempView("updates")
+
 
 table = "glue_catalog.gp_silver.order_items"
 spark.sql(
-    f"CREATE TABLE IF NOT EXISTS {table} USING iceberg AS SELECT * FROM updates LIMIT 0"
+    f"CREATE TABLE IF NOT EXISTS {table} USING iceberg "
+    f"TBLPROPERTIES ('format-version'='2') "
+    f"AS SELECT * FROM updates LIMIT 0"
 )
 spark.sql(f"""
     MERGE INTO {table} t
