@@ -33,14 +33,43 @@ db_url = f"{base_url};databaseName={args['db_name']}"
 jdbc_options = {"user": user, "password": password, "driver": "com.microsoft.sqlserver.jdbc.SQLServerDriver"}
 
 
-def create_database_if_missing() -> None:
-    """RDS SQL Server starts with system databases only, so create the source database."""
+# Source schema, created explicitly so SQL Server gets real types (Spark's JDBC writer would
+# pick DATETIME, which rounds milliseconds, and NVARCHAR(MAX) for every string).
+TABLE_DDL = {
+    "order_items": """
+        CREATE TABLE dbo.order_items (
+            APP_NAME            NVARCHAR(100),
+            RESTAURANT_ID       VARCHAR(24),
+            CREATION_TIME_UTC   DATETIME2(3),
+            ORDER_ID            VARCHAR(24),
+            USER_ID             VARCHAR(24),
+            PRINTED_CARD_NUMBER VARCHAR(32),
+            IS_LOYALTY          BIT,
+            CURRENCY            CHAR(3),
+            LINEITEM_ID         VARCHAR(24),
+            ITEM_CATEGORY       NVARCHAR(200),
+            ITEM_NAME           NVARCHAR(200),
+            ITEM_PRICE          DECIMAL(10, 2),
+            ITEM_QUANTITY       INT
+        )""",
+    "order_item_options": """
+        CREATE TABLE dbo.order_item_options (
+            ORDER_ID          VARCHAR(24),
+            LINEITEM_ID       VARCHAR(24),
+            OPTION_GROUP_NAME NVARCHAR(100),
+            OPTION_NAME       NVARCHAR(200),
+            OPTION_PRICE      DECIMAL(10, 2),
+            OPTION_QUANTITY   INT
+        )""",
+}
+
+
+def run_sql(database: str, statement: str) -> None:
+    """Run one DDL statement directly on SQL Server (Spark's JDBC API only reads and writes rows)."""
     jvm = spark.sparkContext._gateway.jvm
-    conn = jvm.java.sql.DriverManager.getConnection(f"{base_url};databaseName=master", user, password)
+    conn = jvm.java.sql.DriverManager.getConnection(f"{base_url};databaseName={database}", user, password)
     try:
-        conn.createStatement().executeUpdate(
-            f"IF DB_ID('{args['db_name']}') IS NULL CREATE DATABASE [{args['db_name']}]"
-        )
+        conn.createStatement().executeUpdate(statement)
     finally:
         conn.close()
 
@@ -54,14 +83,18 @@ def read_csv(name: str) -> DataFrame:
     )
 
 
-def load_table(df: DataFrame, table: str, column_types: str | None = None) -> None:
+def load_table(df: DataFrame, table: str) -> None:
     df = df.cache()
     expected = df.count()
 
-    writer = df.write.format("jdbc").options(url=db_url, dbtable=f"dbo.{table}", **jdbc_options).mode("overwrite")
-    if column_types:
-        writer = writer.option("createTableColumnTypes", column_types)
-    writer.save()
+    run_sql(args["db_name"], f"IF OBJECT_ID('dbo.{table}') IS NULL {TABLE_DDL[table]}")
+    # truncate=true: overwrite empties the existing table instead of dropping it, keeping our types.
+    (
+        df.write.format("jdbc")
+        .options(url=db_url, dbtable=f"dbo.{table}", truncate="true", **jdbc_options)
+        .mode("overwrite")
+        .save()
+    )
 
     actual = (
         spark.read.format("jdbc")
@@ -74,7 +107,8 @@ def load_table(df: DataFrame, table: str, column_types: str | None = None) -> No
         raise RuntimeError(f"{table}: row count mismatch ({expected} expected, {actual} loaded)")
 
 
-create_database_if_missing()
+# RDS SQL Server starts with system databases only, so create the source database first.
+run_sql("master", f"IF DB_ID('{args['db_name']}') IS NULL CREATE DATABASE [{args['db_name']}]")
 
 order_items = (
     read_csv("order_items")
@@ -83,8 +117,7 @@ order_items = (
     .withColumn("ITEM_PRICE", F.col("ITEM_PRICE").cast("decimal(10,2)"))
     .withColumn("ITEM_QUANTITY", F.col("ITEM_QUANTITY").cast("int"))
 )
-# DATETIME2(3) keeps the millisecond precision that SQL Server's default DATETIME would round.
-load_table(order_items, "order_items", column_types="CREATION_TIME_UTC DATETIME2(3)")
+load_table(order_items, "order_items")
 
 order_item_options = (
     read_csv("order_item_options")

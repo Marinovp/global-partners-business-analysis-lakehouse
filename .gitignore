@@ -59,3 +59,7 @@ data/*
 
 # ---------- Not ours to publish ----------
 GlobalPartners_Business_Analysis_Requirements.docx
+
+# ---------- Python ----------
+__pycache__/
+*.pyc
