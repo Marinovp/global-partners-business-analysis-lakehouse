@@ -2,6 +2,7 @@ locals {
   source_db_name     = "globalpartners"
   seed_script_src    = "${path.module}/../../etl/jobs/seed_rds.py"
   extract_script_src = "${path.module}/../../etl/jobs/extract.py"
+  silver_script_src  = "${path.module}/../../etl/jobs/silver.py"
 }
 
 # How Glue jobs get into the VPC: Glue places the job's network interfaces in this
@@ -108,5 +109,41 @@ resource "aws_glue_job" "extract" {
 
   tags = {
     Name = "${local.name_prefix}-extract"
+  }
+}
+
+resource "aws_s3_object" "silver_script" {
+  bucket      = aws_s3_bucket.lakehouse.id
+  key         = "artifacts/jobs/silver.py"
+  source      = local.silver_script_src
+  source_hash = filemd5(local.silver_script_src)
+}
+
+# Job 1: merges the latest raw extract into Iceberg tables in gp_silver.
+resource "aws_glue_job" "silver" {
+  name              = "${local.name_prefix}-silver"
+  role_arn          = aws_iam_role.glue.arn
+  glue_version      = "4.0"
+  worker_type       = "G.1X"
+  number_of_workers = 2
+  timeout           = 30
+  max_retries       = 0
+
+  command {
+    name            = "glueetl"
+    script_location = "s3://${aws_s3_bucket.lakehouse.bucket}/${aws_s3_object.silver_script.key}"
+    python_version  = "3"
+  }
+
+  default_arguments = {
+    "--job-language"                     = "python"
+    "--TempDir"                          = "s3://${aws_s3_bucket.lakehouse.bucket}/artifacts/tmp/"
+    "--enable-continuous-cloudwatch-log" = "true"
+    "--bucket"                           = aws_s3_bucket.lakehouse.bucket
+    "--datalake-formats"                 = "iceberg"
+  }
+
+  tags = {
+    Name = "${local.name_prefix}-silver"
   }
 }

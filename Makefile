@@ -1,4 +1,4 @@
-.PHONY: init plan apply destroy seed seed-rds extract
+.PHONY: init plan apply destroy seed seed-rds extract silver
 TF_DIR := infra/lakehouse
 
 ifndef ENV
@@ -31,3 +31,7 @@ seed-rds: init
 # Start job 0 (extract): SQL Server → S3 raw/ (prints the job run ID).
 extract: init
 	aws glue start-job-run --job-name $$(terraform -chdir=$(TF_DIR) output -raw extract_job_name) --query JobRunId --output text
+
+# Start job 1 (silver): raw → Iceberg tables in gp_silver.
+silver: init
+	aws glue start-job-run --job-name $$(terraform -chdir=$(TF_DIR) output -raw silver_job_name) --query JobRunId --output text
