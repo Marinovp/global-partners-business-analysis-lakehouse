@@ -17,3 +17,7 @@ output "seed_job_name" {
 output "extract_job_name" {
   value = aws_glue_job.extract.name
 }
+
+output "silver_job_name" {
+  value = aws_glue_job.silver.name
+}
