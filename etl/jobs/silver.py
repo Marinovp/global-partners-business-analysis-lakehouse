@@ -7,7 +7,7 @@ import sys
 
 import boto3
 from awsglue.utils import getResolvedOptions
-from pyspark.sql import SparkSession
+from pyspark.sql import DataFrame, SparkSession
 
 args = getResolvedOptions(sys.argv, ["bucket"])
 
@@ -44,17 +44,44 @@ def latest_run_path(table: str) -> str:
     return f"s3://{args['bucket']}/{newest}"
 
 
-def merge_into_silver(table: str, keys: list[str]) -> None:
-    raw = spark.read.parquet(latest_run_path(table))
+def quarantine(rejects: DataFrame, table: str, reason: str, run: str) -> None:
+    """Keep rejected rows instead of silently dropping them: quarantine/<table>/<run>/reason=<reason>/."""
+    path = f"s3://{args['bucket']}/quarantine/{table}/{run}/reason={reason}/"
+    # overwrite is safe here: the same raw run always produces the same rejects.
+    rejects.write.mode("overwrite").parquet(path)
+    print(f"{table}: {rejects.count()} rows quarantined ({reason})")
+
+
+def merge_into_silver(
+    table: str,
+    keys: list[str],
+    parent: str | None = None,
+    parent_keys: list[str] | None = None,
+) -> None:
+    run_path = latest_run_path(table)
+    run = run_path.rstrip("/").split("/")[-1]  # "run_id=..."
+    raw = spark.read.parquet(run_path)
     raw = raw.toDF(
         *[c.lower() for c in raw.columns]
     )  # silver uses lowercase column names
 
-    # Rows missing any key part can't be merged (NULL = NULL is not true); 1c will quarantine them.
+    # Rows missing any key part can't be merged (NULL = NULL is not true).
     has_keys = " AND ".join(f"{k} IS NOT NULL" for k in keys)
+    quarantine(raw.filter(f"NOT ({has_keys})"), table, "missing_key", run)
     updates = raw.filter(has_keys).dropDuplicates(
         keys
     )  # MERGE needs one source row per key
+
+    # Child rows whose parent doesn't exist in silver (e.g. an option without its line item).
+    if parent:
+        parents = spark.table(f"glue_catalog.gp_silver.{parent}").select(*parent_keys)
+        quarantine(
+            updates.join(parents, parent_keys, "left_anti"), table, "orphan", run
+        )
+        updates = updates.join(
+            parents, parent_keys, "left_semi"
+        )  # keep only rows that HAVE a parent
+
     updates.createOrReplaceTempView("updates")
 
     target = f"glue_catalog.gp_silver.{table}"
@@ -78,4 +105,6 @@ merge_into_silver("order_items", ["lineitem_id"])
 merge_into_silver(
     "order_item_options",
     ["order_id", "lineitem_id", "option_group_name", "option_name"],
+    parent="order_items",
+    parent_keys=["order_id", "lineitem_id"],
 )
