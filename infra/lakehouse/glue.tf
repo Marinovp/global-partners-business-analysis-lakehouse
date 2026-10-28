@@ -105,6 +105,8 @@ resource "aws_glue_job" "extract" {
     "--db_name"                          = local.source_db_name
     "--secret_arn"                       = aws_db_instance.source.master_user_secret[0].secret_arn
     "--aws_region"                       = var.aws_region
+    "--datalake-formats"                 = "iceberg" # reads the watermark from gp_silver
+    "--lookback_days"                    = "2"       # re-pull 2 days to catch late-arriving rows
   }
 
   tags = {
