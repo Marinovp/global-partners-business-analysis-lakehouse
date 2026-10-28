@@ -44,25 +44,38 @@ def latest_run_path(table: str) -> str:
     return f"s3://{args['bucket']}/{newest}"
 
 
-raw = spark.read.parquet(latest_run_path("order_items"))
-raw = raw.toDF(*[c.lower() for c in raw.columns])  # silver uses lowercase column names
-updates = raw.filter("lineitem_id IS NOT NULL").dropDuplicates(
-    ["lineitem_id"]
-)  # MERGE needs one source row per key
-updates.createOrReplaceTempView("updates")
+def merge_into_silver(table: str, keys: list[str]) -> None:
+    raw = spark.read.parquet(latest_run_path(table))
+    raw = raw.toDF(
+        *[c.lower() for c in raw.columns]
+    )  # silver uses lowercase column names
+
+    # Rows missing any key part can't be merged (NULL = NULL is not true); 1c will quarantine them.
+    has_keys = " AND ".join(f"{k} IS NOT NULL" for k in keys)
+    updates = raw.filter(has_keys).dropDuplicates(
+        keys
+    )  # MERGE needs one source row per key
+    updates.createOrReplaceTempView("updates")
+
+    target = f"glue_catalog.gp_silver.{table}"
+    spark.sql(
+        f"CREATE TABLE IF NOT EXISTS {target} USING iceberg "
+        f"TBLPROPERTIES ('format-version'='2') "
+        f"AS SELECT * FROM updates LIMIT 0"
+    )
+    on = " AND ".join(f"t.{k} = s.{k}" for k in keys)  # one "t.<key> = s.<key>" per key
+    spark.sql(f"""
+        MERGE INTO {target} t
+        USING updates s
+        ON {on}
+        WHEN MATCHED THEN UPDATE SET *
+        WHEN NOT MATCHED THEN INSERT *
+    """)
+    print(f"{target}: {spark.table(target).count()} rows after merge")
 
 
-table = "glue_catalog.gp_silver.order_items"
-spark.sql(
-    f"CREATE TABLE IF NOT EXISTS {table} USING iceberg "
-    f"TBLPROPERTIES ('format-version'='2') "
-    f"AS SELECT * FROM updates LIMIT 0"
+merge_into_silver("order_items", ["lineitem_id"])
+merge_into_silver(
+    "order_item_options",
+    ["order_id", "lineitem_id", "option_group_name", "option_name"],
 )
-spark.sql(f"""
-    MERGE INTO {table} t
-    USING updates s
-    ON t.lineitem_id = s.lineitem_id
-    WHEN MATCHED THEN UPDATE SET *
-    WHEN NOT MATCHED THEN INSERT *
-""")
-print(f"{table}: {spark.table(table).count()} rows after merge")
