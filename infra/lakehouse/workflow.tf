@@ -38,3 +38,22 @@ resource "aws_glue_trigger" "after_extract" {
     job_name = aws_glue_job.silver.name
   }
 }
+
+# Starts gold only after silver SUCCEEDED.
+resource "aws_glue_trigger" "after_silver" {
+  name              = "${local.name_prefix}-after-silver"
+  workflow_name     = aws_glue_workflow.pipeline.name
+  type              = "CONDITIONAL"
+  start_on_creation = true
+
+  predicate {
+    conditions {
+      job_name = aws_glue_job.silver.name
+      state    = "SUCCEEDED"
+    }
+  }
+
+  actions {
+    job_name = aws_glue_job.gold.name
+  }
+}

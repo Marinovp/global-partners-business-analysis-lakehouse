@@ -3,6 +3,7 @@ locals {
   seed_script_src    = "${path.module}/../../etl/jobs/seed_rds.py"
   extract_script_src = "${path.module}/../../etl/jobs/extract.py"
   silver_script_src  = "${path.module}/../../etl/jobs/silver.py"
+  gold_script_src    = "${path.module}/../../etl/jobs/gold.py"
 }
 
 # How Glue jobs get into the VPC: Glue places the job's network interfaces in this
@@ -147,5 +148,41 @@ resource "aws_glue_job" "silver" {
 
   tags = {
     Name = "${local.name_prefix}-silver"
+  }
+}
+
+resource "aws_s3_object" "gold_script" {
+  bucket      = aws_s3_bucket.lakehouse.id
+  key         = "artifacts/jobs/gold.py"
+  source      = local.gold_script_src
+  source_hash = filemd5(local.gold_script_src)
+}
+
+# Job 2: rebuilds the business tables in gp_gold from silver.
+resource "aws_glue_job" "gold" {
+  name              = "${local.name_prefix}-gold"
+  role_arn          = aws_iam_role.glue.arn
+  glue_version      = "4.0"
+  worker_type       = "G.1X"
+  number_of_workers = 2
+  timeout           = 30
+  max_retries       = 0
+
+  command {
+    name            = "glueetl"
+    script_location = "s3://${aws_s3_bucket.lakehouse.bucket}/${aws_s3_object.gold_script.key}"
+    python_version  = "3"
+  }
+
+  default_arguments = {
+    "--job-language"                     = "python"
+    "--TempDir"                          = "s3://${aws_s3_bucket.lakehouse.bucket}/artifacts/tmp/"
+    "--enable-continuous-cloudwatch-log" = "true"
+    "--bucket"                           = aws_s3_bucket.lakehouse.bucket
+    "--datalake-formats"                 = "iceberg"
+  }
+
+  tags = {
+    Name = "${local.name_prefix}-gold"
   }
 }

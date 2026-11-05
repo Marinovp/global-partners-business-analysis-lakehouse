@@ -25,3 +25,7 @@ output "silver_job_name" {
 output "workflow_name" {
   value = aws_glue_workflow.pipeline.name
 }
+
+output "gold_job_name" {
+  value = aws_glue_job.gold.name
+}
