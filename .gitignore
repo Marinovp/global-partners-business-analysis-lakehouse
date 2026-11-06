@@ -63,3 +63,7 @@ GlobalPartners_Business_Analysis_Requirements.docx
 # ---------- Python ----------
 __pycache__/
 *.pyc
+
+# ---------- Python virtual environments ----------
+.venv/
+venv/
