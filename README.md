@@ -12,6 +12,8 @@ SQL Server (RDS) → Glue PySpark: extract → silver (Iceberg) → gold (Iceber
 - **Design, data model, metric definitions, "why" of each technology, assumptions:** [docs/solution-design.md](docs/solution-design.md)
 - **Architecture diagram:** [docs/architecture/global_partners_lakehouse.drawio](docs/architecture/global_partners_lakehouse.drawio)
 - **SQL version of every query (for review):** [etl/sql/](etl/sql/README.md)
+- **Every AWS object explained** (roles, jobs, tables, costs): [docs/what-was-built.md](docs/what-was-built.md)
+- **Building it by hand in the AWS Console:** [docs/console-walkthrough.md](docs/console-walkthrough.md)
 
 ## Repository layout
 
