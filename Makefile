@@ -1,4 +1,4 @@
-.PHONY: init plan apply destroy seed seed-rds extract silver gold check pipeline
+.PHONY: init plan apply destroy seed seed-rds extract silver gold dq check pipeline
 TF_DIR := infra/lakehouse
 
 ifndef ENV
@@ -40,7 +40,11 @@ silver: init
 gold: init
 	aws glue start-job-run --job-name $$(terraform -chdir=$(TF_DIR) output -raw gold_job_name) --query JobRunId --output text
 
-# Run the whole pipeline (extract → silver → gold, in order) as one Glue Workflow run; prints the run ID.
+# Start job 3 (dq): data-quality checks on silver and gold.
+dq: init
+	aws glue start-job-run --job-name $$(terraform -chdir=$(TF_DIR) output -raw dq_job_name) --query JobRunId --output text
+
+# Run the whole pipeline (extract → silver → gold → dq, in order) as one Glue Workflow run; prints the run ID.
 pipeline: init
 	aws glue start-workflow-run --name $$(terraform -chdir=$(TF_DIR) output -raw workflow_name) --query RunId --output text
 

@@ -9,11 +9,13 @@ resource "aws_glue_workflow" "pipeline" {
   }
 }
 
-# Entry point: started by hand with `make pipeline` (becomes a daily SCHEDULED trigger later).
+# Entry point: runs daily at 06:00 UTC while the stack exists; `make pipeline` starts a run on demand.
 resource "aws_glue_trigger" "start" {
-  name          = "${local.name_prefix}-start"
-  workflow_name = aws_glue_workflow.pipeline.name
-  type          = "ON_DEMAND"
+  name              = "${local.name_prefix}-start"
+  workflow_name     = aws_glue_workflow.pipeline.name
+  type              = "SCHEDULED"
+  schedule          = "cron(0 6 * * ? *)"
+  start_on_creation = true
 
   actions {
     job_name = aws_glue_job.extract.name
@@ -55,5 +57,24 @@ resource "aws_glue_trigger" "after_silver" {
 
   actions {
     job_name = aws_glue_job.gold.name
+  }
+}
+
+# Starts the DQ gate only after gold SUCCEEDED.
+resource "aws_glue_trigger" "after_gold" {
+  name              = "${local.name_prefix}-after-gold"
+  workflow_name     = aws_glue_workflow.pipeline.name
+  type              = "CONDITIONAL"
+  start_on_creation = true
+
+  predicate {
+    conditions {
+      job_name = aws_glue_job.gold.name
+      state    = "SUCCEEDED"
+    }
+  }
+
+  actions {
+    job_name = aws_glue_job.dq.name
   }
 }

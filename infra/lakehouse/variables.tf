@@ -19,3 +19,9 @@ variable "vpc_cidr" {
   type        = string
   default     = "10.20.0.0/16"
 }
+
+variable "alert_email" {
+  description = "Email that receives pipeline failure alerts. Set it outside Git, e.g. export TF_VAR_alert_email=you@example.com. Empty = no subscription."
+  type        = string
+  default     = ""
+}

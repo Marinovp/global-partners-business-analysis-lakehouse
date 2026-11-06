@@ -29,3 +29,11 @@ output "workflow_name" {
 output "gold_job_name" {
   value = aws_glue_job.gold.name
 }
+
+output "dq_job_name" {
+  value = aws_glue_job.dq.name
+}
+
+output "alerts_topic_arn" {
+  value = aws_sns_topic.alerts.arn
+}

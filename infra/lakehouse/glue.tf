@@ -4,6 +4,7 @@ locals {
   extract_script_src = "${path.module}/../../etl/jobs/extract.py"
   silver_script_src  = "${path.module}/../../etl/jobs/silver.py"
   gold_script_src    = "${path.module}/../../etl/jobs/gold.py"
+  dq_script_src      = "${path.module}/../../etl/jobs/dq.py"
 }
 
 # How Glue jobs get into the VPC: Glue places the job's network interfaces in this
@@ -184,5 +185,41 @@ resource "aws_glue_job" "gold" {
 
   tags = {
     Name = "${local.name_prefix}-gold"
+  }
+}
+
+resource "aws_s3_object" "dq_script" {
+  bucket      = aws_s3_bucket.lakehouse.id
+  key         = "artifacts/jobs/dq.py"
+  source      = local.dq_script_src
+  source_hash = filemd5(local.dq_script_src)
+}
+
+# Job 3: data-quality gate; fails (and alerts) when a critical check on silver or gold fails.
+resource "aws_glue_job" "dq" {
+  name              = "${local.name_prefix}-dq"
+  role_arn          = aws_iam_role.glue.arn
+  glue_version      = "4.0"
+  worker_type       = "G.1X"
+  number_of_workers = 2
+  timeout           = 30
+  max_retries       = 0
+
+  command {
+    name            = "glueetl"
+    script_location = "s3://${aws_s3_bucket.lakehouse.bucket}/${aws_s3_object.dq_script.key}"
+    python_version  = "3"
+  }
+
+  default_arguments = {
+    "--job-language"                     = "python"
+    "--TempDir"                          = "s3://${aws_s3_bucket.lakehouse.bucket}/artifacts/tmp/"
+    "--enable-continuous-cloudwatch-log" = "true"
+    "--bucket"                           = aws_s3_bucket.lakehouse.bucket
+    "--datalake-formats"                 = "iceberg"
+  }
+
+  tags = {
+    Name = "${local.name_prefix}-dq"
   }
 }
