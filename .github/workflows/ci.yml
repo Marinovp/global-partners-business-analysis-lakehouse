@@ -1,0 +1,65 @@
+# CI: runs on every pull request and every push to main.
+#  1. checks  – Terraform formatting + validation and Python syntax (no AWS access needed)
+#  2. plan    – terraform plan against the dev stack, so reviewers see what a merge would change
+#               (needs the AWS_ROLE_ARN repository variable; skipped until it's set)
+# Nothing is applied here. Applying is a manual step: see deploy.yml.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  TF_VERSION: "1.15.7"
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10" # Glue 4.0's Python version
+      - name: Terraform format
+        run: terraform fmt -check -recursive infra
+      - name: Terraform validate (lakehouse and bootstrap, no backend)
+        run: |
+          for dir in infra/lakehouse infra/bootstrap; do
+            terraform -chdir=$dir init -backend=false -input=false
+            terraform -chdir=$dir validate
+          done
+      - name: Python syntax (Glue jobs and dashboard)
+        run: python -c "import ast, sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]; print('OK:', *sys.argv[1:])" etl/jobs/*.py dashboard/*.py
+
+  plan:
+    needs: checks
+    if: vars.AWS_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # lets the job request the OIDC token AWS exchanges for temporary credentials
+    concurrency:
+      group: terraform-dev # never two Terraform runs on the same state at once (plus the S3 lock)
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-west-2
+      - name: Terraform plan (dev)
+        env:
+          TF_IN_AUTOMATION: "true"
+          TF_INPUT: "false"
+        run: make plan ENV=dev

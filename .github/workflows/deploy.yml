@@ -1,0 +1,50 @@
+# CD: deploy or tear down the dev stack on demand (GitHub → Actions → Deploy → Run workflow).
+# Manual on purpose: the stack is destroyed when not in use to save cost, so a merge to main
+# shouldn't silently bring RDS and the VPC endpoints back.
+#   apply   – plan, then apply exactly that plan (also uploads the Glue job scripts)
+#   destroy – tear the dev stack down (the bootstrap stack and its state bucket stay)
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "What to do with the dev stack"
+        type: choice
+        options: [apply, destroy]
+        default: apply
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: terraform-dev
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: dev # add required reviewers on this environment to make every run need approval
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.7"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-west-2
+      - name: Terraform ${{ inputs.action }} (dev)
+        env:
+          TF_IN_AUTOMATION: "true"
+          TF_INPUT: "false"
+          TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }} # optional; empty = no email subscription
+        run: |
+          if [ "${{ inputs.action }}" = "apply" ]; then
+            make plan ENV=dev
+            make apply ENV=dev
+          else
+            make destroy ENV=dev
+          fi
