@@ -13,6 +13,9 @@ resource "aws_glue_catalog_database" "gold" {
 resource "aws_athena_workgroup" "lakehouse" {
   name = "${local.name_prefix}-wg"
 
+  # The dev stack is destroyed regularly, and AWS won't delete a workgroup that isn't empty otherwise.
+  force_destroy = true
+
   configuration {
     bytes_scanned_cutoff_per_query = 1073741824 # 1 GB: queries over this are cancelled
 
